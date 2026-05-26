@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+selenium
+schedule
+requests
+python-dotenv
