@@ -15,7 +15,7 @@ import json, base64
 from typing import List, Optional, Tuple
 from fastapi import FastAPI, Header, Request, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
-import threading, hashlib, secrets
+import threading, hashlib, secrets, random
 
 try:
     from dotenv import load_dotenv
@@ -160,17 +160,31 @@ def unban_config():
     return build_chrome_options()
 
 
+AIQINGGONGYU_FALLBACK_TEXTS = [
+    "今天也要记得续火花呀",
+    "别忘了今天的小火花",
+    "火花不断，心意常在",
+]
+
+
 def AiqingGongyu_text():
-    req = requests.get('https://v2.xxapi.cn/api/aiqinggongyu')
-    if req.status_code == 200:
+    fallback_text = random.choice(AIQINGGONGYU_FALLBACK_TEXTS)
+    try:
+        req = requests.get('https://v2.xxapi.cn/api/aiqinggongyu', timeout=5)
+        if req.status_code != 200:
+            logger.warning("AiqingGongyu_text API returned status %s, using fallback text", req.status_code)
+            return fallback_text
+
         json_data = req.json()
-        json_data = json_data['data']
-        if json_data:
-            return json_data
-        else:
-            return '暂无今日名言'
-    else:
-        return '暂无今日名言'
+        text = json_data.get('data') if isinstance(json_data, dict) else None
+        if text:
+            return text
+
+        logger.warning("AiqingGongyu_text API returned empty data, using fallback text")
+        return fallback_text
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        logger.warning("AiqingGongyu_text API failed with %s, using fallback text", exc.__class__.__name__)
+        return fallback_text
 
 
 def Get_Cooke():
@@ -767,7 +781,11 @@ def edit_time(name: str, new_time: str, authorization: str = Header(None)):
 
     # 创建新任务
     new_play_time = format_time(new_time)
-    msg = AiqingGongyu_text()  # 获取新的名言
+    try:
+        msg = AiqingGongyu_text()  # 获取新的名言
+    except Exception as exc:
+        logger.warning("edit_time ignored text API failure: %s", exc.__class__.__name__)
+        msg = random.choice(AIQINGGONGYU_FALLBACK_TEXTS)
     new_job = schedule.every().day.at(new_play_time).do(douyin.Send_Frinder, name, msg)
 
     # 生成新任务ID并替换
